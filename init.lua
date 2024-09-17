@@ -90,6 +90,13 @@ P.S. You can delete this when you're done too. It's your config now! :)
 vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 
+-- disable netrw at the very start of your init.lua
+vim.g.loaded_netrw = 1
+vim.g.loaded_netrwPlugin = 1
+
+-- optionally enable 24-bit colour
+vim.opt.termguicolors = true
+
 -- Set to true if you have a Nerd Font installed and selected in the terminal
 vim.g.have_nerd_font = true
 
@@ -166,6 +173,12 @@ vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
 
 -- Diagnostic keymaps
 vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist, { desc = 'Open diagnostic [Q]uickfix list' })
+
+-- something which can close a buffer an leave an empty window
+vim.keymap.set('n', '<leader>Q', ':bdelete<CR>', { desc = 'Close buffer without quitting window' })
+vim.keymap.set('n', '<PageUp>', ':bn<CR>', { desc = 'Go to next buffer' })
+vim.keymap.set('n', '<PageDown>', ':bp<CR>', { desc = 'Go to previous buffer' })
+vim.keymap.set('n', '-', ':NvimTreeToggle<CR>', { desc = 'Toggle tree explorer' })
 
 -- Exit terminal mode in the builtin terminal with a shortcut that is a bit easier
 -- for people to discover. Otherwise, you normally need to press <C-\><C-n>, which
@@ -251,6 +264,159 @@ require('lazy').setup({
   -- NOTE: Plugins can be added with a link (or for a github repo: 'owner/repo' link).
 
   -- added by me below
+  {
+    'Bekaboo/dropbar.nvim',
+    -- optional, but required for fuzzy finder support
+    dependencies = {
+      'nvim-telescope/telescope-fzf-native.nvim',
+    },
+  },
+  {
+    'hedyhli/outline.nvim',
+    lazy = true,
+    cmd = { 'Outline', 'OutlineOpen' },
+    keys = { -- Example mapping to toggle outline
+      { '<leader>o', '<cmd>Outline<CR>', desc = 'Toggle outline' },
+    },
+    opts = {
+      -- Your setup opts here
+    },
+  },
+  --  {
+  --    'preservim/nerdtree',
+  --    tag = '7.0.1',
+  --    dependencies = {
+  --      'PhilRunninger/nerdtree-visual-selection',
+  --      'PhilRunninger/nerdtree-buffer-ops',
+  --      'scrooloose/nerdtree-project-plugin',
+  --      'tiagofumo/vim-nerdtree-syntax-highlight',
+  --      'ryanoasis/vim-devicons',
+  --      'Xuyuanp/nerdtree-git-plugin',
+  --    },
+  --  },
+  {
+    'nvim-tree/nvim-tree.lua',
+    dependencies = {
+      'nvim-lua/plenary.nvim',
+      'nvim-tree/nvim-web-devicons', -- not strictly required, but recommended
+      'MunifTanjim/nui.nvim',
+      'nvim-telescope/telescope.nvim',
+    },
+    config = function()
+      require('nvim-tree').setup {
+        sort = {
+          sorter = 'case_sensitive',
+        },
+        view = {
+          width = 40,
+        },
+        renderer = {
+          group_empty = true,
+          root_folder_modifier = ':t',
+          special_files = {},
+          symlink_destination = false,
+          indent_markers = {
+            enable = true,
+          },
+          highlight_opened_files = 'name',
+          icons = {
+            git_placement = 'signcolumn',
+            show = {
+              file = true,
+              folder = false,
+              folder_arrow = false,
+              git = true,
+            },
+            glyphs = {
+              modified = '[+]',
+            },
+          },
+        },
+        diagnostics = {
+          enable = true,
+          icons = {
+            hint = '',
+            info = '',
+            warning = '',
+            error = '',
+          },
+          show_on_dirs = true,
+        },
+        filters = {
+          dotfiles = false,
+        },
+        update_focused_file = {
+          update_root = {
+            enable = true,
+          },
+          enable = true,
+          ignore_list = {
+            'help',
+            'git',
+            'fugitiveblame',
+          },
+        },
+        git = {
+          timeout = 800,
+          show_on_open_dirs = false,
+        },
+        modified = {
+          enable = true,
+          show_on_open_dirs = false,
+        },
+        actions = {
+          change_dir = {
+            enable = true,
+            global = true,
+          },
+          open_file = {
+            resize_window = true,
+            window_picker = {
+              chars = 'aoeui',
+            },
+          },
+          remove_file = {
+            close_window = false,
+          },
+        },
+        on_attach = function(bufnr)
+          local telescope = require 'telescope.builtin'
+          local api = require 'nvim-tree.api'
+          --- Absolute path of the current node's directory
+          --- @return string|nil
+          local function node_dir_path()
+            local node = api.tree.get_node_under_cursor()
+            if not node then
+              return
+            end
+
+            if node.parent and node.type == 'file' then
+              node = node.parent
+            end
+
+            return node.absolute_path
+          end
+
+          local function find_files()
+            telescope.find_files { search_dirs = { node_dir_path() } }
+          end
+
+          local function live_grep()
+            telescope.live_grep { search_dirs = { node_dir_path() } }
+          end
+          local function opts(desc)
+            return { desc = 'nvim-tree: ' .. desc, buffer = bufnr, noremap = true, silent = true, nowait = true }
+          end
+
+          api.config.mappings.default_on_attach(bufnr)
+
+          vim.keymap.set('n', '<C-f>', find_files, opts 'Fuzzy file search')
+          vim.keymap.set('n', '<C-g>', live_grep, opts 'Fuzzy file grep')
+          vim.keymap.del('n', 'S', { buffer = bufnr })
+        end,
+      }
+    end,
+  },
   -- added by me above
 
   'tpope/vim-sleuth', -- Detect tabstop and shiftwidth automatically
@@ -359,7 +525,7 @@ require('lazy').setup({
   { -- Fuzzy Finder (files, lsp, etc)
     'nvim-telescope/telescope.nvim',
     event = 'VimEnter',
-    branch = '0.1.x',
+    branch = 'master',
     dependencies = {
       'nvim-lua/plenary.nvim',
       { -- If encountering errors, see telescope-fzf-native README for installation instructions
@@ -376,21 +542,18 @@ require('lazy').setup({
         end,
       },
       { 'nvim-telescope/telescope-ui-select.nvim' },
-      {
-        'princejoogie/dir-telescope.nvim',
-        -- telescope.nvim is a required dependency
-        requires = { 'nvim-telescope/telescope.nvim' },
-        config = function()
-          require('dir-telescope').setup {
-            -- these are the default options set
-            hidden = true,
-            show_preview = true,
-            follow_symlinks = false,
-          }
-        end,
-      },
       -- Useful for getting pretty icons, but requires a Nerd Font.
       { 'nvim-tree/nvim-web-devicons', enabled = vim.g.have_nerd_font },
+      {
+        'fbuchlak/telescope-directory.nvim',
+        features = {
+          name = 'open_dir_in_file_explorer',
+          callback = function(dirs)
+            local dir = dirs[1]
+            vim.cmd(('NvimTreeOpen %s'):format(dir))
+          end,
+        },
+      },
     },
     config = function()
       -- Telescope is a fuzzy finder that comes with a lot of different things that
@@ -437,6 +600,7 @@ require('lazy').setup({
       pcall(require('telescope').load_extension, 'fzf')
       pcall(require('telescope').load_extension, 'ui-select')
       pcall(require('telescope').load_extension, 'dir')
+      pcall(require('telescope').load_extension, 'directory')
 
       -- See `:help telescope.builtin`
       local builtin = require 'telescope.builtin'
@@ -446,12 +610,11 @@ require('lazy').setup({
       vim.keymap.set('n', '<leader>ss', builtin.builtin, { desc = '[S]earch [S]elect Telescope' })
       vim.keymap.set('n', '<leader>sw', builtin.grep_string, { desc = '[S]earch current [W]ord' })
       vim.keymap.set('n', '<leader>sg', builtin.live_grep, { desc = '[S]earch by [G]rep' })
-      vim.keymap.set('n', '<leader>sd', builtin.diagnostics, { desc = '[S]earch [D]iagnostics' })
+      vim.keymap.set('n', '<leader>sD', builtin.diagnostics, { desc = '[S]earch [D]iagnostics' })
       vim.keymap.set('n', '<leader>sr', builtin.resume, { desc = '[S]earch [R]esume' })
       vim.keymap.set('n', '<leader>s.', builtin.oldfiles, { desc = '[S]earch Recent Files ("." for repeat)' })
       vim.keymap.set('n', '<leader><leader>', builtin.buffers, { desc = '[ ] Find existing buffers' })
-      vim.keymap.set('n', '<leader>spg', '<cmd>Telescope dir live_grep<CR>', { noremap = true, silent = true, desc = '[S]earch [P]recisely by [G]rep' })
-      vim.keymap.set('n', '<leader>spf', '<cmd>Telescope dir find_files<CR>', { noremap = true, silent = true, desc = '[S]earch [P]recisely by [F]iles' })
+      vim.keymap.set('n', '<leader>sd', '<CMD>Telescope directory feature=open_dir_in_file_explorer<CR>', { desc = '[S]earch for [D]irectory' })
 
       -- Slightly advanced example of overriding default behavior and theme
       vim.keymap.set('n', '<leader>/', function()
