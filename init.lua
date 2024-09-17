@@ -204,6 +204,26 @@ vim.api.nvim_create_autocmd('TextYankPost', {
   end,
 })
 
+-- [[ Setup conform format_on_save disable/enable commands ]]
+-- See https://github.com/stevearc/conform.nvim/blob/master/doc/recipes.md#command-to-toggle-format-on-save
+vim.api.nvim_create_user_command('FormatDisable', function(args)
+  if args.bang then
+    -- FormatDisable! will disable formatting just for this buffer
+    vim.b.disable_autoformat = true
+  else
+    vim.g.disable_autoformat = true
+  end
+end, {
+  desc = 'Disable autoformat-on-save',
+  bang = true,
+})
+vim.api.nvim_create_user_command('FormatEnable', function()
+  vim.b.disable_autoformat = false
+  vim.g.disable_autoformat = false
+end, {
+  desc = 'Re-enable autoformat-on-save',
+})
+
 -- [[ Install `lazy.nvim` plugin manager ]]
 --    See `:help lazy.nvim.txt` or https://github.com/folke/lazy.nvim for more info
 local lazypath = vim.fn.stdpath 'data' .. '/lazy/lazy.nvim'
@@ -631,8 +651,37 @@ require('lazy').setup({
         -- pyright = {},
         rust_analyzer = {
           ['rust-analyzer'] = {
+            procMacro = {
+              attributes = {
+                enable = true,
+              },
+              enable = true,
+            },
+            checkOnSave = false,
             check = {
-              command = 'clippy',
+              overrideCommand = {
+                'cargo',
+                'clippy',
+                '--fix',
+                '--workspace',
+                '--message-format=json',
+                '--all-targets',
+                '--allow-dirty',
+                '--target-dir',
+                'target/rust-analyzer',
+              },
+            },
+            cargo = {
+              features = { 'runtime-benchmarks', 'try-runtime', 'cli' },
+            },
+            rustfmt = {
+              extraArgs = { '+nightly' },
+            },
+            server = {
+              extraEnv = {
+                CHALK_OVERFLOW_DEPTH = '1000000',
+                SKIP_WASM_BUILD = 1,
+              },
             },
           },
         },
@@ -712,6 +761,10 @@ require('lazy').setup({
         -- Disable "format_on_save lsp_fallback" for languages that don't
         -- have a well standardized coding style. You can add additional
         -- languages here or re-enable it for the disabled ones.
+        -- Disable with a global or buffer-local variable
+        if vim.g.disable_autoformat or vim.b[bufnr].disable_autoformat then
+          return
+        end
         local disable_filetypes = { c = true, cpp = true }
         local lsp_format_opt
         if disable_filetypes[vim.bo[bufnr].filetype] then
@@ -726,6 +779,7 @@ require('lazy').setup({
       end,
       formatters_by_ft = {
         lua = { 'stylua' },
+        -- rust = { 'rustfmt', lsp_format = 'fallback' },
         -- Conform can also run multiple formatters sequentially
         -- python = { "isort", "black" },
         --
