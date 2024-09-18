@@ -87,6 +87,30 @@ P.S. You can delete this when you're done too. It's your config now! :)
 -- Set <space> as the leader key
 -- See `:help mapleader`
 --  NOTE: Must happen before plugins are loaded (otherwise wrong leader will be used)
+
+-- Makes nvim lua plugins load faster
+vim.loader.enable()
+
+-- For sessions restoring with nvim-tree
+vim.api.nvim_create_autocmd('BufReadPost', {
+  callback = function(_)
+    local api = require 'nvim-tree.api'
+    api.tree.open()
+  end,
+})
+-- Not working with vim-obsession
+--vim.api.nvim_create_autocmd({ 'BufEnter' }, {
+--  pattern = 'NvimTree*',
+--  callback = function()
+--    local api = require 'nvim-tree.api'
+--    local view = require 'nvim-tree.view'
+--
+--    if not view.is_visible() then
+--      api.tree.open()
+--    end
+--  end,
+--})
+
 vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 
@@ -281,7 +305,47 @@ require('lazy').setup({
     opts = {
       -- Your setup opts here
     },
+    'tpope/vim-obsession',
+    {
+      'folke/trouble.nvim',
+      opts = {}, -- for default options, refer to the configuration section for custom setup.
+      cmd = 'Trouble',
+      keys = {
+        {
+          '<leader>xx',
+          '<cmd>Trouble diagnostics toggle<cr>',
+          desc = 'Diagnostics (Trouble)',
+        },
+        {
+          '<leader>xX',
+          '<cmd>Trouble diagnostics toggle filter.buf=0<cr>',
+          desc = 'Buffer Diagnostics (Trouble)',
+        },
+        {
+          '<leader>cs',
+          '<cmd>Trouble symbols toggle focus=false<cr>',
+          desc = 'Symbols (Trouble)',
+        },
+        {
+          '<leader>cl',
+          '<cmd>Trouble lsp toggle focus=false win.position=right<cr>',
+          desc = 'LSP Definitions / references / ... (Trouble)',
+        },
+        {
+          '<leader>xL',
+          '<cmd>Trouble loclist toggle<cr>',
+          desc = 'Location List (Trouble)',
+        },
+        {
+          '<leader>xQ',
+          '<cmd>Trouble qflist toggle<cr>',
+          desc = 'Quickfix List (Trouble)',
+        },
+      },
+    },
   },
+  -- Using nvim-tree instead, seems that nerdtree has slightly lower
+  -- support/contributions.
   --  {
   --    'preservim/nerdtree',
   --    tag = '7.0.1',
@@ -813,37 +877,37 @@ require('lazy').setup({
         -- gopls = {},
         -- pyright = {},
         rust_analyzer = {
-          ['rust-analyzer'] = {
-            procMacro = {
-              attributes = {
+          settings = {
+            ['rust-analyzer'] = {
+              procMacro = {
+                attributes = {
+                  enable = true,
+                },
                 enable = true,
               },
-              enable = true,
-            },
-            checkOnSave = false,
-            check = {
-              overrideCommand = {
-                'cargo',
-                'clippy',
-                '--fix',
-                '--workspace',
-                '--message-format=json',
-                '--all-targets',
-                '--allow-dirty',
-                '--target-dir',
-                'target/rust-analyzer',
+              checkOnSave = true,
+              check = {
+                command = 'clippy',
+                extraArgs = {
+                  '--fix',
+                  '--workspace',
+                  '--message-format=json',
+                  '--all-targets',
+                  '--allow-dirty',
+                },
               },
-            },
-            cargo = {
-              features = { 'runtime-benchmarks', 'try-runtime', 'cli' },
-            },
-            rustfmt = {
-              extraArgs = { '+nightly' },
-            },
-            server = {
-              extraEnv = {
-                CHALK_OVERFLOW_DEPTH = '1000000',
-                SKIP_WASM_BUILD = 1,
+              cargo = {
+                features = { 'runtime-benchmarks', 'try-runtime', 'cli' },
+                targetDir = 'target/rust-analyzer',
+              },
+              rustfmt = {
+                extraArgs = { '+nightly' },
+              },
+              server = {
+                extraEnv = {
+                  CHALK_OVERFLOW_DEPTH = '1000000',
+                  SKIP_WASM_BUILD = 1,
+                },
               },
             },
           },
@@ -1119,7 +1183,7 @@ require('lazy').setup({
       -- cursor location to LINE:COLUMN
       ---@diagnostic disable-next-line: duplicate-set-field
       statusline.section_location = function()
-        return '%2l:%-2v'
+        return '%2l:%-2v%{ObsessionStatus()}'
       end
 
       -- ... and there is more!
@@ -1132,7 +1196,7 @@ require('lazy').setup({
     main = 'nvim-treesitter.configs', -- Sets main module to use for opts
     -- [[ Configure Treesitter ]] See `:help nvim-treesitter`
     opts = {
-      ensure_installed = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' },
+      ensure_installed = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc', 'rust', 'toml' },
       -- Autoinstall languages that are not installed
       auto_install = true,
       highlight = {
@@ -1143,6 +1207,11 @@ require('lazy').setup({
         additional_vim_regex_highlighting = { 'ruby' },
       },
       indent = { enable = true, disable = { 'ruby' } },
+      rainbow = {
+        enable = true,
+        extended_mode = true,
+        max_file_lines = nil,
+      },
     },
     -- There are additional nvim-treesitter modules that you can use to interact
     -- with nvim-treesitter. You should go explore a few and see what interests you:
