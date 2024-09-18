@@ -196,10 +196,9 @@ vim.opt.scrolloff = 10
 vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
 
 -- Diagnostic keymaps
-vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist, { desc = 'Open diagnostic [Q]uickfix list' })
+vim.keymap.set('n', '<leader>q', vim.diagnostic.open_float, { desc = 'Open diagnostic at cursor in floating window' })
 
 -- something which can close a buffer an leave an empty window
-vim.keymap.set('n', '<leader>Q', ':bdelete<CR>', { desc = 'Close buffer without quitting window' })
 vim.keymap.set('n', '<PageUp>', ':bn<CR>', { desc = 'Go to next buffer' })
 vim.keymap.set('n', '<PageDown>', ':bp<CR>', { desc = 'Go to previous buffer' })
 vim.keymap.set('n', '-', ':NvimTreeToggle<CR>', { desc = 'Toggle tree explorer' })
@@ -305,7 +304,6 @@ require('lazy').setup({
     opts = {
       -- Your setup opts here
     },
-    'tpope/vim-obsession',
     {
       'folke/trouble.nvim',
       opts = {}, -- for default options, refer to the configuration section for custom setup.
@@ -340,6 +338,41 @@ require('lazy').setup({
           '<leader>xQ',
           '<cmd>Trouble qflist toggle<cr>',
           desc = 'Quickfix List (Trouble)',
+        },
+      },
+    },
+    {
+      'rmagatti/auto-session',
+      lazy = false,
+      keys = {
+        -- Will use Telescope if installed or a vim.ui.select picker otherwise
+        { '<leader>wr', '<cmd>SessionSearch<CR>', desc = 'Session search' },
+        { '<leader>ws', '<cmd>SessionSave<CR>', desc = 'Save session' },
+        { '<leader>wa', '<cmd>SessionToggleAutoSave<CR>', desc = 'Toggle autosave' },
+      },
+
+      ---enables autocomplete for opts
+      opts = {
+        allowed_dirs = { '/home/iulian/repos/polkadot-sdk/' },
+        -- ⚠️ This will only work if Telescope.nvim is installed
+        -- The following are already the default values, no need to provide them if these are already the settings you want.
+        session_lens = {
+          -- If load_on_setup is false, make sure you use `:SessionSearch` to open the picker as it will initialize everything first
+          load_on_setup = true,
+          previewer = false,
+          mappings = {
+            -- Mode can be a string or a table, e.g. {"i", "n"} for both insert and normal mode
+            delete_session = { 'i', '<C-D>' },
+            alternate_session = { 'i', '<C-S>' },
+          },
+          -- Can also set some Telescope picker options
+          theme_conf = {
+            border = true,
+            -- layout_config = {
+            --   width = 0.8, -- Can set width and height as percent of window
+            --   height = 0.5,
+            -- },
+          },
         },
       },
     },
@@ -382,7 +415,7 @@ require('lazy').setup({
           indent_markers = {
             enable = true,
           },
-          highlight_opened_files = 'name',
+          highlight_opened_files = 'all',
           icons = {
             git_placement = 'signcolumn',
             show = {
@@ -399,7 +432,7 @@ require('lazy').setup({
         diagnostics = {
           enable = true,
           icons = {
-            hint = '',
+            hint = '󰌵',
             info = '',
             warning = '',
             error = '',
@@ -1183,7 +1216,7 @@ require('lazy').setup({
       -- cursor location to LINE:COLUMN
       ---@diagnostic disable-next-line: duplicate-set-field
       statusline.section_location = function()
-        return '%2l:%-2v%{ObsessionStatus()}'
+        return '%2l:%-2v'
       end
 
       -- ... and there is more!
