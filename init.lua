@@ -91,26 +91,6 @@ P.S. You can delete this when you're done too. It's your config now! :)
 -- Makes nvim lua plugins load faster
 vim.loader.enable()
 
--- For sessions restoring with nvim-tree
-vim.api.nvim_create_autocmd('BufReadPost', {
-  callback = function(_)
-    local api = require 'nvim-tree.api'
-    api.tree.open()
-  end,
-})
--- Not working with vim-obsession
---vim.api.nvim_create_autocmd({ 'BufEnter' }, {
---  pattern = 'NvimTree*',
---  callback = function()
---    local api = require 'nvim-tree.api'
---    local view = require 'nvim-tree.view'
---
---    if not view.is_visible() then
---      api.tree.open()
---    end
---  end,
---})
-
 vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 
@@ -120,6 +100,14 @@ vim.g.loaded_netrwPlugin = 1
 
 -- optionally enable 24-bit colour
 vim.opt.termguicolors = true
+
+-- auto-reload files when modified externally
+-- https://unix.stackexchange.com/a/383044
+vim.o.autoread = true
+vim.api.nvim_create_autocmd({ 'BufEnter', 'CursorHold', 'CursorHoldI', 'FocusGained' }, {
+  command = "if mode() != 'c' | checktime | endif",
+  pattern = { '*' },
+})
 
 -- Set to true if you have a Nerd Font installed and selected in the terminal
 vim.g.have_nerd_font = true
@@ -198,10 +186,150 @@ vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
 -- Diagnostic keymaps
 vim.keymap.set('n', '<leader>q', vim.diagnostic.open_float, { desc = 'Open diagnostic at cursor in floating window' })
 
--- something which can close a buffer an leave an empty window
+-- nvim-tree
+vim.api.nvim_create_autocmd({ 'BufEnter', 'QuitPre' }, {
+  nested = false,
+  callback = function(e)
+    local tree = require('nvim-tree.api').tree
+
+    -- Nothing to do if tree is not opened
+    if not tree.is_visible() then
+      return
+    end
+
+    -- How many focusable windows do we have? (excluding e.g. incline status window)
+    local winCount = 0
+    for _, winId in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_win_get_config(winId).focusable then
+        winCount = winCount + 1
+      end
+    end
+
+    -- We want to quit and only one window besides tree is left
+    if e.event == 'QuitPre' and winCount == 2 then
+      vim.api.nvim_cmd({ cmd = 'qall' }, {})
+    end
+
+    -- :bd was probably issued an only tree window is left
+    -- Behave as if tree was closed (see `:h :bd`)
+    if e.event == 'BufEnter' and winCount == 1 then
+      -- Required to avoid "Vim:E444: Cannot close last window"
+      vim.defer_fn(function()
+        -- close nvim-tree: will go to the last buffer used before closing
+        tree.toggle { find_file = true, focus = true }
+        -- re-open nivm-tree
+        tree.toggle { find_file = true, focus = false }
+      end, 10)
+    end
+  end,
+})
+
+vim.api.nvim_create_autocmd({ 'BufEnter' }, {
+  pattern = 'NvimTree*',
+  callback = function()
+    local api = require 'nvim-tree.api'
+    local view = require 'nvim-tree.view'
+
+    if not view.is_visible() then
+      api.tree.open()
+    end
+  end,
+})
+
+local nvimTreeFocusOrToggle = function()
+  local nvimTree = require 'nvim-tree.api'
+  local currentBuf = vim.api.nvim_get_current_buf()
+  local currentBufFt = vim.api.nvim_get_option_value('filetype', { buf = currentBuf })
+  if currentBufFt == 'NvimTree' then
+    nvimTree.tree.toggle()
+  else
+    nvimTree.tree.focus()
+  end
+end
+
+vim.keymap.set('n', '<A-1>', nvimTreeFocusOrToggle)
 vim.keymap.set('n', '<PageUp>', ':bn<CR>', { desc = 'Go to next buffer' })
 vim.keymap.set('n', '<PageDown>', ':bp<CR>', { desc = 'Go to previous buffer' })
-vim.keymap.set('n', '-', ':NvimTreeToggle<CR>', { desc = 'Toggle tree explorer' })
+
+local find_directory_and_focus = function()
+  local actions = require 'telescope.actions'
+  local action_state = require 'telescope.actions.state'
+
+  local function open_nvim_tree(prompt_bufnr, _)
+    actions.select_default:replace(function()
+      local api = require 'nvim-tree.api'
+
+      actions.close(prompt_bufnr)
+      local selection = action_state.get_selected_entry()
+      api.tree.open()
+      api.tree.find_file(selection.cwd .. '/' .. selection.value)
+    end)
+    return true
+  end
+
+  require('telescope.builtin').find_files {
+    find_command = { 'fdfind', '--type', 'directory', '--hidden', '--exclude', '.git/*' },
+    attach_mappings = open_nvim_tree,
+  }
+end
+
+-- Function to check if a buffer is an NvimTree buffer
+local function is_nvimtree_buffer(bufnr)
+  return vim.bo[bufnr].filetype == 'NvimTree'
+end
+
+-- Function to check if a buffer is a special buffer (e.g., LSP popups, floating windows)
+local function is_special_buffer(bufnr)
+  local buftype = vim.bo[bufnr].buftype
+  local filetype = vim.bo[bufnr].filetype
+
+  -- Exclude special buffer types like 'nofile', 'prompt', 'acwrite'
+  if buftype == 'nofile' or buftype == 'prompt' or buftype == 'acwrite' then
+    return true
+  end
+
+  -- Exclude buffers related to LSP popups (e.g., Rust Analyzer)
+  if filetype == 'lspinfo' then
+    return true
+  end
+
+  return false
+end
+
+-- Custom buffer delete function that avoids NvimTree buffers
+local function delete_buffer_and_refocus()
+  local current_buf = vim.api.nvim_get_current_buf()
+  local buffers = vim.api.nvim_list_bufs()
+
+  -- Ensure the current buffer is not an NvimTree buffer before deletion
+  if is_nvimtree_buffer(current_buf) then
+    print 'Cannot delete an NvimTree buffer'
+    return
+  end
+
+  -- Find a buffer that is not the current one and not an NvimTree buffer
+  for _, buf in ipairs(buffers) do
+    if buf ~= current_buf and not is_nvimtree_buffer(buf) and not is_special_buffer(buf) then
+      -- Switch to this buffer
+      vim.api.nvim_set_current_buf(buf)
+      -- Delete the original buffer (force delete to avoid unsaved warnings)
+      vim.api.nvim_buf_delete(current_buf, { force = false })
+      return
+    end
+  end
+
+  -- Handle the case where no valid buffer is found
+  vim.api.nvim_buf_delete(current_buf, { force = false })
+end
+
+-- Override the default :bd command to use the custom delete logic
+vim.api.nvim_create_user_command('Bd', function()
+  delete_buffer_and_refocus()
+end, {})
+
+-- Map :bd and :bdelete to use the new Bd command
+vim.api.nvim_set_keymap('n', ':bd', ':Bd<CR>', { noremap = true, silent = true })
+vim.api.nvim_set_keymap('n', ':bdelete', ':Bd<CR>', { noremap = true, silent = true })
 
 -- Exit terminal mode in the builtin terminal with a shortcut that is a bit easier
 -- for people to discover. Otherwise, you normally need to press <C-\><C-n>, which
@@ -260,6 +388,37 @@ end, {
   desc = 'Re-enable autoformat-on-save',
 })
 
+-- [[ Close unamed empty buffer ]]
+-- Function to close empty and unnamed buffers
+function close_empty_unnamed_buffers()
+  -- Get a list of all buffers
+  local buffers = vim.api.nvim_list_bufs()
+
+  -- Iterate over each buffer
+  for _, bufnr in ipairs(buffers) do
+    -- Check if the buffer is empty and doesn't have a name
+    if vim.api.nvim_buf_is_loaded(bufnr) and vim.api.nvim_buf_get_name(bufnr) == '' and vim.api.nvim_buf_get_name(bufnr) == '[No Name]' then
+      -- Get all lines in the buffer
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+      -- Initialize a variable to store the total number of characters
+      local total_characters = 0
+
+      -- Iterate over each line and calculate the number of characters
+      for _, line in ipairs(lines) do
+        total_characters = total_characters + #line
+      end
+
+      -- Close the buffer if it's empty:
+      if total_characters == 0 then
+        vim.api.nvim_buf_delete(bufnr, {
+          force = true,
+        })
+      end
+    end
+  end
+end
+
 -- [[ Install `lazy.nvim` plugin manager ]]
 --    See `:help lazy.nvim.txt` or https://github.com/folke/lazy.nvim for more info
 local lazypath = vim.fn.stdpath 'data' .. '/lazy/lazy.nvim'
@@ -286,92 +445,97 @@ vim.opt.rtp:prepend(lazypath)
 require('lazy').setup({
   -- NOTE: Plugins can be added with a link (or for a github repo: 'owner/repo' link).
 
-  -- added by me below
+  -- {
+  --   'Bekaboo/dropbar.nvim',
+  --   -- optional, but required for fuzzy finder support
+  --   dependencies = {
+  --     'nvim-telescope/telescope-fzf-native.nvim',
+  --   },
+  -- },
   {
-    'Bekaboo/dropbar.nvim',
-    -- optional, but required for fuzzy finder support
-    dependencies = {
-      'nvim-telescope/telescope-fzf-native.nvim',
+    'nvim-treesitter/nvim-treesitter-context',
+    opts = {
+      enable = true, -- Enable this plugin (Can be enabled/disabled later via commands)
+      max_lines = 0, -- How many lines the window should span. Values <= 0 mean no limit.
+      min_window_height = 0, -- Minimum editor window height to enable context. Values <= 0 mean no limit.
+      line_numbers = true,
+      multiline_threshold = 20, -- Maximum number of lines to show for a single context
+      trim_scope = 'outer', -- Which context lines to discard if `max_lines` is exceeded. Choices: 'inner', 'outer'
+      mode = 'cursor', -- Line used to calculate context. Choices: 'cursor', 'topline'
+      -- Separator between context and content. Should be a single character string, like '-'.
+      -- When separator is set, the context will only show up when there are at least 2 lines above cursorline.
+      separator = nil,
+      zindex = 20, -- The Z-index of the context window
+      on_attach = nil, -- (fun(
     },
   },
   {
-    'hedyhli/outline.nvim',
-    lazy = true,
-    cmd = { 'Outline', 'OutlineOpen' },
-    keys = { -- Example mapping to toggle outline
-      { '<leader>o', '<cmd>Outline<CR>', desc = 'Toggle outline' },
-    },
-    opts = {
-      -- Your setup opts here
-    },
-    {
-      'folke/trouble.nvim',
-      opts = {}, -- for default options, refer to the configuration section for custom setup.
-      cmd = 'Trouble',
-      keys = {
-        {
-          '<leader>xx',
-          '<cmd>Trouble diagnostics toggle<cr>',
-          desc = 'Diagnostics (Trouble)',
-        },
-        {
-          '<leader>xX',
-          '<cmd>Trouble diagnostics toggle filter.buf=0<cr>',
-          desc = 'Buffer Diagnostics (Trouble)',
-        },
-        {
-          '<leader>cs',
-          '<cmd>Trouble symbols toggle focus=false<cr>',
-          desc = 'Symbols (Trouble)',
-        },
-        {
-          '<leader>cl',
-          '<cmd>Trouble lsp toggle focus=false win.position=right<cr>',
-          desc = 'LSP Definitions / references / ... (Trouble)',
-        },
-        {
-          '<leader>xL',
-          '<cmd>Trouble loclist toggle<cr>',
-          desc = 'Location List (Trouble)',
-        },
-        {
-          '<leader>xQ',
-          '<cmd>Trouble qflist toggle<cr>',
-          desc = 'Quickfix List (Trouble)',
-        },
+    'folke/trouble.nvim',
+    opts = {}, -- for default options, refer to the configuration section for custom setup.
+    cmd = 'Trouble',
+    keys = {
+      {
+        '<leader>xx',
+        '<cmd>Trouble diagnostics toggle<cr>',
+        desc = 'Diagnostics (Trouble)',
+      },
+      {
+        '<leader>xX',
+        '<cmd>Trouble diagnostics toggle filter.buf=0<cr>',
+        desc = 'Buffer Diagnostics (Trouble)',
+      },
+      {
+        '<leader>cs',
+        '<cmd>Trouble symbols toggle focus=false<cr>',
+        desc = 'Symbols (Trouble)',
+      },
+      {
+        '<leader>cl',
+        '<cmd>Trouble lsp toggle focus=false win.position=right<cr>',
+        desc = 'LSP Definitions / references / ... (Trouble)',
+      },
+      {
+        '<leader>xL',
+        '<cmd>Trouble loclist toggle<cr>',
+        desc = 'Location List (Trouble)',
+      },
+      {
+        '<leader>xQ',
+        '<cmd>Trouble qflist toggle<cr>',
+        desc = 'Quickfix List (Trouble)',
       },
     },
-    {
-      'rmagatti/auto-session',
-      lazy = false,
-      keys = {
-        -- Will use Telescope if installed or a vim.ui.select picker otherwise
-        { '<leader>wr', '<cmd>SessionSearch<CR>', desc = 'Session search' },
-        { '<leader>ws', '<cmd>SessionSave<CR>', desc = 'Save session' },
-        { '<leader>wa', '<cmd>SessionToggleAutoSave<CR>', desc = 'Toggle autosave' },
-      },
+  },
+  {
+    'rmagatti/auto-session',
+    lazy = false,
+    keys = {
+      -- Will use Telescope if installed or a vim.ui.select picker otherwise
+      { '<leader>Sr', '<cmd>SessionSearch<CR>', desc = 'Session search' },
+      { '<leader>Ss', '<cmd>SessionSave<CR>', desc = 'Save session' },
+      { '<leader>Sa', '<cmd>SessionToggleAutoSave<CR>', desc = 'Toggle autosave' },
+    },
 
-      ---enables autocomplete for opts
-      opts = {
-        allowed_dirs = { '/home/iulian/repos/polkadot-sdk/' },
-        -- ⚠️ This will only work if Telescope.nvim is installed
-        -- The following are already the default values, no need to provide them if these are already the settings you want.
-        session_lens = {
-          -- If load_on_setup is false, make sure you use `:SessionSearch` to open the picker as it will initialize everything first
-          load_on_setup = true,
-          previewer = false,
-          mappings = {
-            -- Mode can be a string or a table, e.g. {"i", "n"} for both insert and normal mode
-            delete_session = { 'i', '<C-D>' },
-            alternate_session = { 'i', '<C-S>' },
-          },
-          -- Can also set some Telescope picker options
-          theme_conf = {
-            border = true,
-            -- layout_config = {
-            --   width = 0.8, -- Can set width and height as percent of window
-            --   height = 0.5,
-            -- },
+    ---enables autocomplete for opts
+    opts = {
+      allowed_dirs = { '/home/iulian/repos/polkadot-sdk/' },
+      -- ⚠️ This will only work if Telescope.nvim is installed
+      -- The following are already the default values, no need to provide them if these are already the settings you want.
+      session_lens = {
+        -- If load_on_setup is false, make sure you use `:SessionSearch` to open the picker as it will initialize everything first
+        load_on_setup = true,
+        previewer = false,
+        mappings = {
+          -- Mode can be a string or a table, e.g. {"i", "n"} for both insert and normal mode
+          delete_session = { 'i', '<C-D>' },
+          alternate_session = { 'i', '<C-S>' },
+        },
+        -- Can also set some Telescope picker options
+        theme_conf = {
+          border = true,
+          layout_config = {
+            width = 0.8, -- Can set width and height as percent of window
+            height = 0.5,
           },
         },
       },
@@ -405,7 +569,7 @@ require('lazy').setup({
           sorter = 'case_sensitive',
         },
         view = {
-          width = 40,
+          width = 25,
         },
         renderer = {
           group_empty = true,
@@ -443,13 +607,10 @@ require('lazy').setup({
           dotfiles = false,
         },
         update_focused_file = {
-          update_root = {
-            enable = true,
-          },
           enable = true,
           ignore_list = {
             'help',
-            'git',
+            '.git',
             'fugitiveblame',
           },
         },
@@ -473,7 +634,7 @@ require('lazy').setup({
             },
           },
           remove_file = {
-            close_window = false,
+            close_window = true,
           },
         },
         on_attach = function(bufnr)
@@ -511,6 +672,30 @@ require('lazy').setup({
           vim.keymap.set('n', '<C-g>', live_grep, opts 'Fuzzy file grep')
           vim.keymap.del('n', 'S', { buffer = bufnr })
         end,
+      }
+    end,
+  },
+  {
+    'akinsho/bufferline.nvim',
+    version = '*',
+    dependencies = 'nvim-tree/nvim-web-devicons',
+    config = function()
+      require('bufferline').setup {
+        options = {
+          offsets = {
+            {
+              filetype = 'NvimTree',
+              text = 'File Explorer',
+              text_align = 'center',
+              separator = true,
+            },
+            indicator = {
+              style = 'underline',
+            },
+            separator_style = 'slant',
+            show_buffer_icons = false,
+          },
+        },
       }
     end,
   },
@@ -612,7 +797,7 @@ require('lazy').setup({
     },
   },
 
-  -- NOTE: Plugins can specify dependencies.
+  -- NOTE: Plugins can specify dependencies.i
   --
   -- The dependencies are proper plugin specifications as well - anything
   -- you do for a plugin at the top level, you can do for a dependency.
@@ -641,16 +826,6 @@ require('lazy').setup({
       { 'nvim-telescope/telescope-ui-select.nvim' },
       -- Useful for getting pretty icons, but requires a Nerd Font.
       { 'nvim-tree/nvim-web-devicons', enabled = vim.g.have_nerd_font },
-      {
-        'fbuchlak/telescope-directory.nvim',
-        features = {
-          name = 'open_dir_in_file_explorer',
-          callback = function(dirs)
-            local dir = dirs[1]
-            vim.cmd(('NvimTreeOpen %s'):format(dir))
-          end,
-        },
-      },
     },
     config = function()
       -- Telescope is a fuzzy finder that comes with a lot of different things that
@@ -711,7 +886,7 @@ require('lazy').setup({
       vim.keymap.set('n', '<leader>sr', builtin.resume, { desc = '[S]earch [R]esume' })
       vim.keymap.set('n', '<leader>s.', builtin.oldfiles, { desc = '[S]earch Recent Files ("." for repeat)' })
       vim.keymap.set('n', '<leader><leader>', builtin.buffers, { desc = '[ ] Find existing buffers' })
-      vim.keymap.set('n', '<leader>sd', '<CMD>Telescope directory feature=open_dir_in_file_explorer<CR>', { desc = '[S]earch for [D]irectory' })
+      vim.keymap.set('n', '<leader>sd', find_directory_and_focus, { desc = '[S]earch for [D]irectory' })
 
       -- Slightly advanced example of overriding default behavior and theme
       vim.keymap.set('n', '<leader>/', function()
@@ -912,6 +1087,11 @@ require('lazy').setup({
         rust_analyzer = {
           settings = {
             ['rust-analyzer'] = {
+              completion = {
+                postfix = {
+                  enable = false,
+                },
+              },
               procMacro = {
                 attributes = {
                   enable = true,
@@ -929,9 +1109,17 @@ require('lazy').setup({
                   '--allow-dirty',
                 },
               },
+              imports = {
+                granularity = {
+                  group = 'module',
+                },
+              },
               cargo = {
                 features = { 'runtime-benchmarks', 'try-runtime', 'cli' },
                 targetDir = 'target/rust-analyzer',
+                buildScripts = {
+                  enable = false,
+                },
               },
               rustfmt = {
                 extraArgs = { '+nightly' },
@@ -1025,13 +1213,16 @@ require('lazy').setup({
         if vim.g.disable_autoformat or vim.b[bufnr].disable_autoformat then
           return
         end
+
         local disable_filetypes = { c = true, cpp = true }
         local lsp_format_opt
+
         if disable_filetypes[vim.bo[bufnr].filetype] then
           lsp_format_opt = 'never'
         else
           lsp_format_opt = 'fallback'
         end
+
         return {
           timeout_ms = 500,
           lsp_format = lsp_format_opt,
@@ -1039,7 +1230,7 @@ require('lazy').setup({
       end,
       formatters_by_ft = {
         lua = { 'stylua' },
-        -- rust = { 'rustfmt', lsp_format = 'fallback' },
+        rust = { 'rustfmt', lsp_format = 'fallback' },
         -- Conform can also run multiple formatters sequentially
         -- python = { "isort", "black" },
         --
@@ -1084,6 +1275,8 @@ require('lazy').setup({
       --  into multiple repos for maintenance purposes.
       'hrsh7th/cmp-nvim-lsp',
       'hrsh7th/cmp-path',
+      'hrsh7th/cmp-buffer',
+      'hrsh7th/cmp-cmdline',
     },
     config = function()
       -- See `:help cmp`
@@ -1097,7 +1290,7 @@ require('lazy').setup({
             luasnip.lsp_expand(args.body)
           end,
         },
-        completion = { completeopt = 'menu,menuone,noinsert' },
+        completion = { completeopt = 'menu,menuone,noinsert,noselect' },
 
         -- For an understanding of why these mappings were
         -- chosen, you will need to read `:help ins-completion`
@@ -1158,8 +1351,9 @@ require('lazy').setup({
             group_index = 0,
           },
           { name = 'nvim_lsp' },
-          { name = 'luasnip' },
+          { name = 'luasnip', keyword_length = 1 },
           { name = 'path' },
+          { name = 'buffer', keyword_length = 2 },
         },
       }
     end,
