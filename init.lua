@@ -932,10 +932,10 @@ require('lazy').setup({
     'neovim/nvim-lspconfig',
     dependencies = {
       -- Automatically install LSPs and related tools to stdpath for Neovim
-      { 'williamboman/mason.nvim', config = true }, -- NOTE: Must be loaded before dependants
+      { 'williamboman/mason.nvim' }, -- NOTE: Must be loaded before dependants
       'williamboman/mason-lspconfig.nvim',
       'WhoIsSethDaniel/mason-tool-installer.nvim',
-
+      --
       -- Useful status updates for LSP.
       -- NOTE: `opts = {}` is the same as calling `require('fidget').setup({})`
       { 'j-hui/fidget.nvim', opts = {} },
@@ -1087,11 +1087,6 @@ require('lazy').setup({
         rust_analyzer = {
           settings = {
             ['rust-analyzer'] = {
-              completion = {
-                postfix = {
-                  enable = false,
-                },
-              },
               procMacro = {
                 attributes = {
                   enable = true,
@@ -1109,17 +1104,14 @@ require('lazy').setup({
                   '--allow-dirty',
                 },
               },
-              imports = {
-                granularity = {
-                  group = 'module',
-                },
-              },
               cargo = {
-                features = { 'runtime-benchmarks', 'try-runtime', 'cli' },
                 targetDir = 'target/rust-analyzer',
                 buildScripts = {
                   enable = false,
                 },
+              },
+              cachePriming = {
+                enable = false,
               },
               rustfmt = {
                 extraArgs = { '+nightly' },
@@ -1158,13 +1150,7 @@ require('lazy').setup({
         },
       }
 
-      -- Ensure the servers and tools above are installed
-      --  To check the current status of installed tools and/or manually install
-      --  other tools, you can run
-      --    :Mason
-      --
-      --  You can press `g?` for help in this menu.
-      require('mason').setup()
+      require('mason').setup { PATH = 'append' }
 
       -- You can add other tools here that you want Mason to install
       -- for you, so that they are available from within Neovim.
@@ -1172,6 +1158,7 @@ require('lazy').setup({
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
       })
+
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
       require('mason-lspconfig').setup {
